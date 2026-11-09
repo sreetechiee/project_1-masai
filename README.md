@@ -45,7 +45,6 @@ Run the steps in this order, because later scripts read the files made by earlie
 
 ---
 
-(PART A GOES BELOW THIS LINE)
 
 ## Part A: Data Foundation (Clean, Store, Query)
 
