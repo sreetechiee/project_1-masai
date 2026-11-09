@@ -1,4 +1,4 @@
-## Instamart Customer Copilot
+# Instamart Customer Copilot
 
 ## Overview
 This project turns raw quick-commerce exports into decisions. Part A cleans dirty order and customer data and analyses it with SQL and pandas. Part B groups customers into segments and predicts which customers will stop ordering. Part C triages support tickets safely around a mock language model. Part D builds a policy question-answering assistant (retrieval) and a refund agent that calls tools. All money amounts are in INR, and no real network call or API key is used anywhere.
@@ -79,7 +79,7 @@ print(g.nunique(), customers.gender.isna().sum())    ## 10 and 30
 
 Result: 12,309 rows (11,110 completed, 1,199 cancelled, 0 pending), 0 missing amounts, completed revenue INR 2,998,668.80.
 
-## Cleaning rules: customers
+### Cleaning rules: customers
 
 | ## | Rule | Rows/values changed |
 |---|------|---------------------|
@@ -88,9 +88,33 @@ Result: 12,309 rows (11,110 completed, 1,199 cancelled, 0 pending), 0 missing am
 | c | Treat ages outside 10 to 100 as missing, then fill missing ages with the city median | 6 set to missing, 67 filled in total |
 | d | Convert `signup_date` to datetime | all rows |
 
-### SQL analysis
+### Audit of the raw data
+| Table | Shape | Missing values |
+|---|---|---|
+| orders | 13,084 rows, 9 columns | order_amount: 53 (0.41%), delivery_minutes: 2,541 (19.42%), all other columns 0 (0.00%) |
+| customers | 1,200 rows, 5 columns | age: 61 (5.08%), gender: 30 (2.50%), all other columns 0 (0.00%) |
+| products | 40 rows, 4 columns | none (0.00% in every column) |
 
-### SQL analysis
+Data types: in orders, `quantity` and `discount_pct` are integers, `delivery_minutes` is a float, and the other columns are text (`order_amount` is text because some entries are not numbers). In customers, `age` is a float and the other columns are text. In products, `price_inr` is an integer and the other columns are text.
+
+Specific audit figures:
+
+| Check | Result |
+|---|---|
+| Raw orders rows | 13,084 |
+| Exact duplicate rows | 119 |
+| Rows with status pending | 656 |
+| Distinct order_id values | 12,309 |
+| order_amount entries that cannot be converted to a number | 120 |
+| Negative delivery_minutes | 106 |
+| Blank delivery_minutes | 2,541 |
+| Blank customer ages | 61 |
+| Ages outside 10 to 100 | 6 |
+| Distinct raw city spellings | 24 |
+| Distinct non-blank gender spellings | 10 |
+| Blank genders | 30 |
+
+## SQL analysis
 The seven queries are saved in `sql/queries.sql` and run from Python with `pd.read_sql_query` (`python run_sql.py`). Only completed orders count as revenue or spend.
 
 | Query | Technique | Result |
