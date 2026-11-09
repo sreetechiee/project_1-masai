@@ -26,6 +26,15 @@ print(g.nunique(), customers.gender.isna().sum())    # 10 and 30
 
 Result: 12,309 rows (11,110 completed, 1,199 cancelled, 0 pending), 0 missing amounts, completed revenue INR 2,998,668.80.
 
+## Cleaning rules: customers
+
+| # | Rule | Rows/values changed |
+|---|------|---------------------|
+| a | Strip spaces and title-case `city` (24 raw spellings become 6 cities) | 24 spellings merged into 6 |
+| b | Map every `gender` spelling to male, female or unknown (blank becomes unknown) | 10 spellings mapped, 30 blanks set to unknown |
+| c | Treat ages outside 10 to 100 as missing, then fill missing ages with the city median | 6 set to missing, 67 filled in total |
+| d | Convert `signup_date` to datetime | all rows |
+
 ## SQL analysis
 
 ### Q6: ranking window functions
@@ -37,3 +46,137 @@ RANK() gives customers with identical total spend the same rank and then skips t
 
 # Pandas Analysis
 This is order data from a quick-commerce retailer (Instamart): 11,110 completed orders across six cities, with product category, quantity, discount and delivery time. Order values are strongly right-skewed: the mean (INR 269.91) is far above the median (INR 135.00), skewness is about 4.61, and the middle half of orders lie between 64.80 and 297.00. There are no low outliers, but 897 orders exceed the upper fence of 645.30; I treated these as genuine large orders (expensive products or higher quantities), not errors, since I have no sign they are wrong. All correlations between order_amount, discount_pct, quantity and delivery_minutes are very weak. The largest in absolute value is order_amount with discount_pct (about -0.095), just above order_amount with quantity (+0.087). A correlation of this size does not establish causation.
+
+
+# Part B: Customer Segments and Lapse Prediction
+
+## What I did in Part B
+The retention team wanted two things. First, groups of similar customers (segments) so they can plan campaigns. Second, a model that predicts which customers are likely to stop ordering (lapse). I used only **completed orders** from `data/clean/orders.csv` and the clean customers file from Part A.
+
+**How to run:** `python segments.py` for the segments, then `python lapse.py` for the lapse model. The results are saved in the `outputs` folder.
+
+---
+
+## Task 1: RFM table
+RFM describes each customer with three numbers. I measured them on the snapshot date **1 October 2025**.
+- **Recency:** days since the customer's last completed order (smaller is better).
+- **Frequency:** how many different completed orders they made.
+- **Monetary:** how much they spent in total, in INR.
+
+| Measure | Result |
+|---|---|
+| Customers with at least one completed order | 1,175 |
+| Recency (median / min / max) | 19 / 0 / 180 days |
+| Frequency (mean / max) | 9.46 / 33 |
+| Monetary (mean / max) | INR 2,552.06 / INR 14,766.55 |
+
+## Task 2: K-means clustering
+K-means groups similar customers together. The three RFM columns are in different units (days, counts, rupees), so I first standardised them with `StandardScaler`. Then I tried K = 2 to 8 groups and recorded two scores: inertia (lower means tighter groups) and silhouette (higher means better separated groups).
+
+| K | Inertia | Silhouette |
+|---|---|---|
+| 2 | 1820.8 | 0.465 |
+| 3 | 1268.2 | 0.445 |
+| 4 | 743.1 | 0.526 |
+| 5 | 617.4 | 0.480 |
+| 6 | 503.2 | 0.482 |
+| 7 | 408.5 | 0.416 |
+| 8 | 366.5 | 0.412 |
+
+**I chose K = 4** for three reasons:
+- On the elbow chart, inertia falls fast until K = 4 and then falls slowly.
+- K = 4 has the best silhouette score (0.526).
+- Four groups are easy for the business to understand and act on.
+
+**Why the lowest inertia cannot choose K:** inertia always goes down when I add more clusters, so K = 8 will always look better than K = 2. If every customer had their own cluster, inertia would be zero, which is useless. So I also used the silhouette score and common sense.
+
+## Task 3: Segment profiles
+The cluster numbers (0 to 3) are only labels and have no order. I named each segment by looking at its averages.
+
+| Segment | Customers | Avg recency (days) | Avg frequency | Avg spend (INR) | Action |
+|---|---|---|---|---|---|
+| **Premium Big Spenders** | 138 | 24.1 | 6.8 | 7,129.7 | Give VIP perks and early access to keep our best spenders |
+| **Loyal Regulars** | 419 | 8.8 | 19.4 | 3,410.0 | Start a loyalty rewards program so they keep ordering |
+| **Occasional Buyers** | 436 | 28.9 | 3.8 | 1,057.6 | Send offers to make them order more often |
+| **At-Risk Lapsing** | 182 | 109.0 | 2.2 | 686.0 | Send a win-back discount before we lose them |
+
+The segment with the highest average spend (Premium Big Spenders) is marked `is_premium = True`.
+
+**PCA:** I used PCA to squeeze the 3 RFM columns into 2. The two components explain 63.4% and 21.8% of the variation, 85.2% in total, so a 2-D picture keeps most of the information.
+
+**Output file:** `outputs/customer_segments.csv` has 1,175 rows with `customer_id`, `recency`, `frequency`, `monetary`, `segment_id`, `segment_name` and `is_premium`.
+
+---
+
+## Task 4: Defining the lapse problem
+- **Cutoff date:** 1 September 2025.
+- **Who is included:** every customer with at least one completed order before the cutoff (1,156 customers).
+- **The label:** `lapsed = 1` if the customer made no completed order between 1 and 30 September 2025, otherwise `0`. 443 customers lapsed (38.32%).
+- **Features** (made only from orders before the cutoff plus the customer table): recency, frequency, monetary, average discount, cancellation rate (cancelled orders divided by all orders), average delivery time, favourite product category, city, age, gender and tenure in days (cutoff minus signup date).
+- **Split:** 80% training and 20% test with `train_test_split(test_size=0.2, stratify=y, random_state=42)`. That gives 924 training rows and 232 test rows.
+- **Baseline:** if I always predict "not lapsed", I am right 61.6% of the time, but I never find a lapsed customer, so the F1 score for the lapsed class is 0. Any real model must beat this.
+
+## Task 5: Preprocessing without leakage
+- Numeric columns were standardised with `StandardScaler`.
+- Text columns (city, gender, favourite category) were one-hot encoded with `drop="first"`, so each one gets (number of categories minus 1) columns. In total there are 19 columns.
+- Both steps are inside one pipeline that was **fitted on the 924 training rows only**. The 232 test rows were only transformed using what was learned from training.
+- The scaler's learned mean of frequency is **8.11**, while the mean of frequency over the full cohort is **8.03**. They differ because the full cohort includes the test rows, and the scaler never saw them.
+- I checked that no feature column has missing values.
+
+## Task 6: Training, tuning and evaluation
+I tuned two models with `GridSearchCV` (cv=5, scoring = F1). The preprocessing sits inside the pipeline, so it is refitted on the training part of every fold.
+
+| Model | Best settings | Best CV F1 |
+|---|---|---|
+| Logistic regression (C = 0.01, 0.1, 1, 10, 100) | C = 100 | 0.651 |
+| Random forest (max_depth 3, 5, 8 and min_samples_leaf 5, 10, 20; 45 fits) | depth 8, leaf 10 | 0.681 |
+
+Results on the untouched test set (lapsed class):
+
+| Model | Precision | Recall | F1 | Confusion matrix [[TN, FP], [FN, TP]] |
+|---|---|---|---|---|
+| Baseline (always "not lapsed") | 0 | 0 | 0 | none |
+| Logistic regression | 0.644 | 0.652 | 0.648 | [[111, 32], [31, 58]] |
+| Random forest | 0.659 | 0.652 | 0.655 | [[113, 30], [31, 58]] |
+
+**I selected the random forest.** It found the same share of lapsing customers as logistic regression (recall 0.65) with fewer false alarms (precision 0.66), and it had the best F1 (0.655). Missing a customer who is about to leave means losing all their future orders, while wrongly contacting a loyal customer only costs a small offer or message. So catching lapsing customers matters most, and the random forest gives the best balance. Both models are far above the required test F1 of 0.55.
+
+## Task 7: Class-balance experiment
+Only 354 of my 924 training customers lapsed, so the lapsed class is the smaller one. I balanced the **training data only**: I kept all 924 rows and added 216 randomly chosen copies of lapsed training rows (with replacement, `random_state=42`), so both classes have 570 rows. Then I refitted the best logistic regression on this data and tested it on the original test set.
+
+| Model | Precision | Recall | F1 |
+|---|---|---|---|
+| Logistic regression, original | 0.644 | 0.652 | 0.648 |
+| Logistic regression, balanced | 0.589 | 0.854 | 0.697 |
+
+**Recall changed the most**, from 0.65 to 0.85, while precision stayed around 0.6 (it did not go up). For the retention team this means the balanced model finds many more customers who are about to leave (76 out of 89 instead of 58), but it also flags more loyal customers by mistake (53 instead of 32). If an offer is cheap, the balanced model is the better choice.
+
+## Task 8: Interpretation, saved model and retention list
+**Top 5 features of the random forest:**
+1. Frequency (0.280): customers who order often rarely leave.
+2. Monetary (0.271): high spenders are more engaged.
+3. Recency (0.115): a long gap since the last order raises the risk.
+4. Average delivery time (0.061): slow deliveries may push customers away.
+5. Cancellation rate (0.052): many cancellations point to a bad experience.
+
+**Logistic regression coefficients:**
+- Frequency is **negative** (-1.70): more orders means a lower chance of lapsing. This is the strongest effect.
+- Recency is **positive** (+0.04): a longer gap means a higher chance of lapsing, but the effect is small.
+- Cancellation rate is slightly **negative** (-0.12): this is very small and surprising, so I do not read much into it.
+
+**Saved model:** I saved the random forest with `joblib.dump` to `outputs/lapse_model.joblib`. When I loaded it back with `joblib.load`, it gave exactly the same predictions on the test set.
+
+**Retention list:** 40 customers in the test set are Premium. I ranked them by predicted chance of lapsing and saved the top 10 in `outputs/retention_list.csv` (columns `customer_id`, `lapse_probability`, `actually_lapsed`). Only 1 of these 10 really lapsed. The Premium flag comes from the whole-window RFM, which includes September (the month that defines the lapse label), so **the retention list is illustrative and not a leakage-free evaluation**.
+
+---
+
+## Checks against data leakage
+- No encoder, scaler or resampler saw any test rows. Everything was fitted on the training rows only.
+- No data from 1 September 2025 onwards was used in the features. September orders were only used to create the label.
+- The segment labels from Task 3 were not used as features.
+
+## Limitations and Next Steps
+- The Premium flag is a whole-window label made after the fact, so the retention list is only illustrative and not a leakage-free evaluation.
+- The test set has only 232 customers, so the scores can change a lot with a different split.
+- Copying lapsed rows to balance the classes can make the model overconfident about those rows.
+- Next steps: use a time-based split, choose the probability threshold using the real cost of an offer compared to losing a customer, and add more behaviour features.
