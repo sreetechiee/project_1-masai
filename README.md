@@ -10,6 +10,20 @@ This project turns raw quick-commerce exports into decisions. Part A cleans dirt
 | C | `triage.py`, `mock_llm.py` | `outputs/triage_results.csv`, `outputs/triage_budget_demo.csv`, `outputs/retry_log.txt` |
 | D | `rag.py`, `agent.py` | `outputs/agent_runs.jsonl`, `outputs/refund_ledger.jsonl`, `state/` |
 
+### Project structure
+```
+generate_data.py, mock_llm.py     supplied files (unmodified)
+audit.py, clean.py, validate.py   Part A: audit, cleaning, database, checks
+run_sql.py, analysis.py           Part A: SQL queries and pandas analysis
+segments.py, lapse.py             Part B: segments and lapse model
+triage.py                         Part C: ticket triage
+rag.py, agent.py                  Part D: policy assistant and refund agent
+sql/queries.sql                   the seven SQL queries
+data/                             raw and clean data, the SQLite database
+outputs/                          generated results (CSV, model, logs)
+state/                            agent checkpoints
+```
+
 ## Reproduce
 1. Clone the repository: `git clone https://github.com/sreetechiee/project_1-masai.git` and open the folder.
 2. Create a virtual environment: `python -m venv venv`
