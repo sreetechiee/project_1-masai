@@ -90,12 +90,56 @@ Result: 12,309 rows (11,110 completed, 1,199 cancelled, 0 pending), 0 missing am
 
 ### SQL analysis
 
-## Q6: ranking window functions
-Top customer per city: Bengaluru C0082 (12,856.20), Chennai C0930 (10,151.40), Delhi C0291 (13,742.60), Hyderabad C0743 (12,730.05), Mumbai C0693 (14,766.55), Pune C0426 (10,377.10), all amounts in INR.
+### SQL analysis
+The seven queries are saved in `sql/queries.sql` and run from Python with `pd.read_sql_query` (`python run_sql.py`). Only completed orders count as revenue or spend.
 
-Rows where RANK() differs from ROW_NUMBER(): 8.
+| Query | Technique | Result |
+|---|---|---|
+| Q1 | WHERE then HAVING | 30 customers |
+| Q2 | Three-table join (revenue by city and category) | 30 rows, total INR 2,998,668.80, largest cell Bengaluru / Electronics INR 233,909.45 |
+| Q3 | Scalar subquery (price above the average) | 11 products |
+| Q4 | LEFT JOIN (customers with no completed order) | 25 customers |
+| Q5 | Common table expression (spend above the average) | 550 customers, average INR 2,552.06 |
+| Q6 | RANK, DENSE_RANK and ROW_NUMBER per city | Top customers: Bengaluru C0082 (12,856.20), Chennai C0930 (10,151.40), Delhi C0291 (13,742.60), Hyderabad C0743 (12,730.05), Mumbai C0693 (14,766.55), Pune C0426 (10,377.10); 8 rows have RANK different from ROW_NUMBER |
+| Q7 | Running total of daily revenue | 183 daily rows, last cumulative value INR 2,998,668.80 |
 
-RANK() gives customers with identical total spend the same rank and then skips the next numbers, while ROW_NUMBER() always gives every row a unique number, so any tie in total_spend within a city makes the two columns differ.
+For Q6: RANK() gives customers with identical total spend the same rank and then skips the next numbers, while ROW_NUMBER() always gives every row a unique number, so any tie in total spend within a city makes the two columns differ.
+
+### pandas cross-check and exploratory analysis
+I rebuilt Q2 with `pd.pivot_table(..., margins=True)`. Its grand total is INR 2,998,668.80, which equals the SQL total.
+
+Completed orders per city (`groupby` with named aggregation):
+
+| City | Sum (INR) | Mean (INR) | Count |
+|---|---|---|---|
+| Bengaluru | 523,643.40 | 276.47 | 1,894 |
+| Chennai | 463,629.15 | 272.72 | 1,700 |
+| Delhi | 502,829.80 | 243.62 | 2,064 |
+| Hyderabad | 528,589.90 | 284.95 | 1,855 |
+| Mumbai | 479,058.50 | 297.00 | 1,613 |
+| Pune | 500,918.05 | 252.48 | 1,984 |
+
+Statistics of completed `order_amount`:
+
+| Statistic | Value |
+|---|---|
+| Mean | 269.91 |
+| Median | 135.00 |
+| Skewness | 4.61 |
+| Q1 / Q3 | 64.80 / 297.00 |
+| 1.5 x IQR fences | lower fence below zero, upper fence 645.30 |
+| Outliers below / above | 0 / 897 |
+
+Correlation matrix (completed orders):
+
+| | order_amount | discount_pct | quantity | delivery_minutes |
+|---|---|---|---|---|
+| order_amount | 1.000 | -0.095 | 0.087 | -0.003 |
+| discount_pct | -0.095 | 1.000 | -0.000 | -0.010 |
+| quantity | 0.087 | -0.000 | 1.000 | -0.013 |
+| delivery_minutes | -0.003 | -0.010 | -0.013 | 1.000 |
+
+**What the data shows.** This is order data from a quick-commerce retailer: 11,110 completed orders across six cities, with product category, quantity, discount and delivery time. Order values are strongly right-skewed: the mean (INR 269.91) is well above the median (INR 135.00) and skewness is about 4.61. Half of all orders fall between INR 64.80 and INR 297.00. There are no low outliers, but 897 orders lie above the upper fence of INR 645.30. I treat them as genuine large purchases, not errors. Correlations between order_amount, discount_pct, quantity and delivery_minutes are all very weak. The largest in absolute value is order_amount with discount_pct (about -0.095), just above order_amount with quantity (+0.087). A correlation of this size does not establish causation.
 
 ### Pandas Analysis
 This is order data from a quick-commerce retailer (Instamart): 11,110 completed orders across six cities, with product category, quantity, discount and delivery time. Order values are strongly right-skewed: the mean (INR 269.91) is far above the median (INR 135.00), skewness is about 4.61, and the middle half of orders lie between 64.80 and 297.00. There are no low outliers, but 897 orders exceed the upper fence of 645.30; I treated these as genuine large orders (expensive products or higher quantities), not errors, since I have no sign they are wrong. All correlations between order_amount, discount_pct, quantity and delivery_minutes are very weak. The largest in absolute value is order_amount with discount_pct (about -0.095), just above order_amount with quantity (+0.087). A correlation of this size does not establish causation.
