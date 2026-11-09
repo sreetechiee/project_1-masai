@@ -180,3 +180,41 @@ Only 354 of my 924 training customers lapsed, so the lapsed class is the smaller
 - The test set has only 232 customers, so the scores can change a lot with a different split.
 - Copying lapsed rows to balance the classes can make the model overconfident about those rows.
 - Next steps: use a time-based split, choose the probability threshold using the real cost of an offer compared to losing a customer, and add more behaviour features.
+
+
+# Part C: Support Ticket Triage with Guardrails
+
+**How to run:** `python triage.py` (needs `mock_llm.py`, `data/raw/tickets.csv` and `outputs/customer_segments.csv`). Outputs: `outputs/triage_results.csv`, `outputs/triage_budget_demo.csv` and `outputs/retry_log.txt`.
+
+## Input guardrails
+Before any model call, a ticket whose text is empty or only whitespace gets `skipped_empty`, and a ticket with more than 400 estimated tokens gets `flagged_long`. Neither is sent to the model. There are 4 empty tickets and 4 long tickets (each about 734 tokens).
+
+## Redaction
+Before a ticket goes into a prompt, three regular expressions replace emails with `[EMAIL]`, phone numbers with `[PHONE]` and order ids with `[ORDER_ID]`, in that order. Across all 164 tickets: 55 emails, 91 phones, 132 order ids, **278 in total**, and re-applying the patterns finds 0 left. The user message is exactly the redacted text, and an assertion in the code checks that no prompt contains an email, phone or order id.
+
+## Prompts
+The zero-shot prompt contains the word CLASSIFY, the four categories and the JSON-only reply format. The few-shot prompt adds an `EXAMPLES:` section with four labelled examples (billing, delivery, technical and a fraud example).
+
+## Retries
+Every model call is wrapped in a retry function: at most 3 retries, with a wait of 0.05 x 2^n x a random factor between 0.9 and 1.15 seconds. Each retry writes one log line (ticket id, retry number, wait). A full run has **19 transient errors, all recovered**, and every wait is between 0.045 and 0.0575 seconds.
+
+## Output validation
+A reply that is valid JSON with an allowed category is `classified_json`. A reply that is not JSON is split into lowercase words with `re.findall`, and if exactly one allowed category word is present it is `classified_keyword`. Everything else, including JSON with the category "shipping", is `flagged_invalid_output` and goes to human review. We never guess. One full run gives **135 classified_json, 12 classified_keyword and 9 flagged_invalid_output**.
+
+## Zero-shot vs few-shot
+| | Zero-shot | Few-shot |
+|---|---|---|
+| Tickets classified | 147 | 147 |
+| Accuracy | 85.7% (126 of 147) | 100% (147 of 147) |
+| Total tokens | 12,052 | 24,220 |
+| Tokens per classified ticket | 82.0 | 164.8 |
+
+The zero-shot errors are all 11 fraud tickets predicted as billing and 10 technical tickets predicted as billing. (Add your own 3 to 4 sentences, for example: the few-shot prompt costs about 83 extra tokens per ticket, roughly double, but it removes all 21 mistakes. It is worth paying when a wrong label is expensive, such as a fraud ticket sitting in the billing queue instead of reaching the security team, and not worth it for low-stakes tickets or a tight token budget.)
+
+## Token budget and routing
+**Budget demo:** with a zero-shot run and TOKEN_BUDGET = 6000, the run stopped calling the model once the running total reached the budget, and **78 tickets ended as `budget_exhausted`** (see `outputs/triage_budget_demo.csv`).
+
+**Final run:** a few-shot run with TOKEN_BUDGET = 100000 produced `outputs/triage_results.csv` (164 rows). Routing rules: skipped, long, invalid or budget-exhausted tickets go to `human_review` (NORMAL); fraud goes to `security_team` (HIGH); Premium customers (from Part B) go to `premium_desk` (HIGH); all others go to `support_queue` (NORMAL). A customer with no row in the segment file is treated as not premium. Result: support_queue 102, security_team 34, human_review 17, premium_desk 11.
+
+## What the rules validated and what went to humans
+147 tickets were classified and checked by rules (135 valid JSON, 12 by keyword extraction). 17 tickets went to humans: 9 invalid model outputs, 4 empty tickets and 4 tickets that were too long.
