@@ -141,9 +141,6 @@ Correlation matrix (completed orders):
 
 **What the data shows.** This is order data from a quick-commerce retailer: 11,110 completed orders across six cities, with product category, quantity, discount and delivery time. Order values are strongly right-skewed: the mean (INR 269.91) is well above the median (INR 135.00) and skewness is about 4.61. Half of all orders fall between INR 64.80 and INR 297.00. There are no low outliers, but 897 orders lie above the upper fence of INR 645.30. I treat them as genuine large purchases, not errors. Correlations between order_amount, discount_pct, quantity and delivery_minutes are all very weak. The largest in absolute value is order_amount with discount_pct (about -0.095), just above order_amount with quantity (+0.087). A correlation of this size does not establish causation.
 
-### Pandas Analysis
-This is order data from a quick-commerce retailer (Instamart): 11,110 completed orders across six cities, with product category, quantity, discount and delivery time. Order values are strongly right-skewed: the mean (INR 269.91) is far above the median (INR 135.00), skewness is about 4.61, and the middle half of orders lie between 64.80 and 297.00. There are no low outliers, but 897 orders exceed the upper fence of 645.30; I treated these as genuine large orders (expensive products or higher quantities), not errors, since I have no sign they are wrong. All correlations between order_amount, discount_pct, quantity and delivery_minutes are very weak. The largest in absolute value is order_amount with discount_pct (about -0.095), just above order_amount with quantity (+0.087). A correlation of this size does not establish causation.
-
 
 ## Part B: Customer Segments and Lapse Prediction
 
